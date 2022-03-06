@@ -76,7 +76,7 @@ class FontEncoder {
     // int linesep = (int) Math.round(0.35 * (font.getAscent() +
     // font.getDescent()));
     int linesep = Math.max(
-        maxBoundingBox.getHeight() - font.getAscent() - font.getDescent(),
+        maxBoundingBox.getHeight() - (font.getAscent() - font.getDescent()),
         (int) (0.2 * (font.getAscent() + font.getDescent())));
 
     maxFontMetricBytes = Math.max(maxFontMetricBytes, signedBytes(maxBoundingBox.xMin));
