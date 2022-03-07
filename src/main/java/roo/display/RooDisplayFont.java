@@ -295,6 +295,12 @@ class RooDisplayFont {
     Glyph d = getGlyphForCodepoint((int)'d');
     if (d != null) {
       ascent = d.getBoundingBox().yMax;
+    } else {
+      // Try the digit zero.
+      Glyph zero = getGlyphForCodepoint((int)'0');
+      if (zero != null) {
+        ascent = zero.getBoundingBox().yMax;
+      }
     }
     Glyph p = getGlyphForCodepoint((int)'p');
     if (p != null) {
