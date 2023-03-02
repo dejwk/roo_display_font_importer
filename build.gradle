@@ -23,8 +23,8 @@ dependencies {
     // This dependency is found on compile classpath of this component and consumers.
     //compile 'com.google.guava:guava:23.0'
 
-    compile files('lib/image-importer.jar')
-    compile 'info.picocli:picocli:3.8.2'
+    implementation files('lib/image-importer.jar')
+    implementation'info.picocli:picocli:3.8.2'
 }
 
 // In this section you declare where to find the dependencies of your project
