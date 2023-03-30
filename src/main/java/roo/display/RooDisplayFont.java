@@ -14,8 +14,10 @@ import java.util.List;
 import java.util.Map;
 
 class RooDisplayFont {
+
   enum Charset {
-    ASCII, UTF8
+    ASCII,
+    UTF8,
   }
 
   enum AlphaBits {
@@ -45,10 +47,11 @@ class RooDisplayFont {
 
   enum MaxFontSize {
     SINGLE, // max height: 256
-    DOUBLE // hax height: 65536
+    DOUBLE, // hax height: 65536
   }
 
   public static class CodePointPair {
+
     public final int left;
     public final int right;
 
@@ -59,6 +62,7 @@ class RooDisplayFont {
   }
 
   public static class KerningPair {
+
     public final CodePointPair codePoints;
     public final int kern;
 
@@ -69,6 +73,7 @@ class RooDisplayFont {
   }
 
   public static class BoundingBox {
+
     public final int xMin;
     public final int yMin;
     public final int xMax;
@@ -82,7 +87,12 @@ class RooDisplayFont {
     }
 
     public boolean contains(BoundingBox other) {
-      return other.xMin >= xMin && other.xMax <= xMax && other.yMin >= yMin && other.yMax <= yMax;
+      return (
+        other.xMin >= xMin &&
+        other.xMax <= xMax &&
+        other.yMin >= yMin &&
+        other.yMax <= yMax
+      );
     }
 
     public boolean isEmpty() {
@@ -90,12 +100,14 @@ class RooDisplayFont {
     }
 
     public BoundingBox expand(BoundingBox other) {
-      if (other == null || contains(other))
-        return this;
-      if (other.contains(this))
-        return other;
-      return new BoundingBox(Math.min(xMin, other.xMin), Math.min(yMin, other.yMin), Math.max(xMax, other.xMax),
-          Math.max(yMax, other.yMax));
+      if (other == null || contains(other)) return this;
+      if (other.contains(this)) return other;
+      return new BoundingBox(
+        Math.min(xMin, other.xMin),
+        Math.min(yMin, other.yMin),
+        Math.max(xMax, other.xMax),
+        Math.max(yMax, other.yMax)
+      );
     }
 
     public int getWidth() {
@@ -108,6 +120,7 @@ class RooDisplayFont {
   }
 
   public static class Glyph {
+
     private final BoundingBox bbox;
     private final int codepoint;
     private final int advance;
@@ -139,7 +152,11 @@ class RooDisplayFont {
 
     // Checks if the specified row is entirely empty (white) at the specified
     // bit resolution.
-    private static boolean isRowEmpty(BufferedImage img, int rowid, AlphaBits bits) {
+    private static boolean isRowEmpty(
+      BufferedImage img,
+      int rowid,
+      AlphaBits bits
+    ) {
       int w = img.getWidth();
       for (int i = 0; i < w; ++i) {
         int rgb = img.getRGB(i, rowid);
@@ -152,7 +169,11 @@ class RooDisplayFont {
 
     // Checks if the specified column is entirely empty (white) at the specified
     // bit resolution.
-    private static boolean isColumnEmpty(BufferedImage img, int colid, AlphaBits bits) {
+    private static boolean isColumnEmpty(
+      BufferedImage img,
+      int colid,
+      AlphaBits bits
+    ) {
       int h = img.getHeight();
       for (int i = 0; i < h; ++i) {
         int rgb = img.getRGB(colid, i);
@@ -170,36 +191,57 @@ class RooDisplayFont {
       // that zero represents 'empty'.
       int pixel = 0xFF - (rgb & 0xFF);
       switch (bits) {
-        case FOUR: {
-          // Rounds the color to the nearest 4-bit representation.
-          return (byte) ((pixel - (pixel >> 5)) >> 4) == 0;
-        }
-        case EIGHT: {
-          return pixel == 0;
-        }
-        default: {
-          throw new IllegalArgumentException("Not currently supported: " + bits);
-        }
+        case FOUR:
+          {
+            // Rounds the color to the nearest 4-bit representation.
+            return (byte) ((pixel - (pixel >> 5)) >> 4) == 0;
+          }
+        case EIGHT:
+          {
+            return pixel == 0;
+          }
+        default:
+          {
+            throw new IllegalArgumentException(
+              "Not currently supported: " + bits
+            );
+          }
       }
     }
   }
 
   public static class GlyphImporter {
+
     private Font font;
     private BufferedImage img;
     private Graphics2D graphics;
     private FontMetrics metrics;
+    private FontRenderContext cxt = new FontRenderContext(
+      null,
+      RenderingHints.VALUE_TEXT_ANTIALIAS_ON,
+      RenderingHints.VALUE_FRACTIONALMETRICS_ON
+    );
 
     GlyphImporter(Font font) {
       this.font = font;
       int fontSize = font.getSize();
       int imgWidth = fontSize * 5;
       int imgHeight = fontSize * 5;
-      this.img = new BufferedImage(imgWidth, imgHeight, BufferedImage.TYPE_INT_RGB);
+      this.img =
+        new BufferedImage(imgWidth, imgHeight, BufferedImage.TYPE_INT_RGB);
       this.graphics = img.createGraphics();
-      graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-      graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-      graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+      graphics.setRenderingHint(
+        RenderingHints.KEY_ANTIALIASING,
+        RenderingHints.VALUE_ANTIALIAS_ON
+      );
+      graphics.setRenderingHint(
+        RenderingHints.KEY_TEXT_ANTIALIASING,
+        RenderingHints.VALUE_TEXT_ANTIALIAS_ON
+      );
+      graphics.setRenderingHint(
+        RenderingHints.KEY_RENDERING,
+        RenderingHints.VALUE_RENDER_QUALITY
+      );
       graphics.setBackground(Color.WHITE);
       graphics.setColor(Color.BLACK);
       graphics.setFont(font);
@@ -237,7 +279,11 @@ class RooDisplayFont {
       }
       // Note: bbox is in FreeType coords (y up).
       BoundingBox bbox = new BoundingBox(
-          left - xOffset, yOffset - bottom, right - xOffset, yOffset - top);
+        left - xOffset,
+        yOffset - bottom,
+        right - xOffset,
+        yOffset - top
+      );
       byte[] raster = new byte[bbox.getWidth() * bbox.getHeight()];
       int dstoffset = 0;
       for (int rowid = top; rowid <= bottom; ++rowid) {
@@ -246,7 +292,23 @@ class RooDisplayFont {
           raster[dstoffset++] = (byte) ((~rgb >> 8) & 0xFF);
         }
       }
-      return new Glyph(bbox, (int) c, metrics.charWidth(c), raster);
+      // An attempt to correct advance fonts that are poorly fit to fixed-point
+      // metrics. If the fixed point advance seems way larger than the fractional
+      // advance, nudge it down. This tweak has been triggered by spacing of some
+      // glyph pairs, e.g. "fo", for the Roboto condensed font. (Noto does not
+      // seem to need it).
+      int advance1 = metrics.charWidth(c);
+      int advance2 = (int) Math.round(
+        font
+          .createGlyphVector(cxt, new char[] { c })
+          .getLogicalBounds()
+          .getWidth()
+      );
+      if (advance1 >= advance2 + 2) {
+        --advance1;
+      }
+
+      return new Glyph(bbox, (int) c, advance1, raster);
     }
   }
 
@@ -261,7 +323,8 @@ class RooDisplayFont {
   int ascent;
   int descent;
 
-  // Creates and initialized the RooDisplayFont, given the specified font and the charset.
+  // Creates and initialized the RooDisplayFont, given the specified font and the
+  // charset.
   public RooDisplayFont(Font font, boolean smooth, char charset[]) {
     this.font = font;
     // Determine charset.
@@ -292,17 +355,17 @@ class RooDisplayFont {
       glyphIdx.put((int) c, g);
     }
     // Determine ascent and descent.
-    Glyph d = getGlyphForCodepoint((int)'d');
+    Glyph d = getGlyphForCodepoint((int) 'd');
     if (d != null) {
       ascent = d.getBoundingBox().yMax;
     } else {
       // Try the digit zero.
-      Glyph zero = getGlyphForCodepoint((int)'0');
+      Glyph zero = getGlyphForCodepoint((int) '0');
       if (zero != null) {
         ascent = zero.getBoundingBox().yMax;
       }
     }
-    Glyph p = getGlyphForCodepoint((int)'p');
+    Glyph p = getGlyphForCodepoint((int) 'p');
     if (p != null) {
       descent = p.getBoundingBox().yMin - 1;
     }
@@ -334,12 +397,17 @@ class RooDisplayFont {
         Glyph g1 = getGlyphAtIndex(i);
         for (int j = 0; j < getGlyphCount(); ++j) {
           Glyph g2 = getGlyphAtIndex(j);
-          candidates.add(new CodePointPair(g1.getCodePoint(), g2.getCodePoint()));
+          candidates.add(
+            new CodePointPair(g1.getCodePoint(), g2.getCodePoint())
+          );
         }
       }
     }
-    FontRenderContext cxt = new FontRenderContext(null, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF,
-        RenderingHints.VALUE_FRACTIONALMETRICS_OFF);
+    FontRenderContext cxt = new FontRenderContext(
+      null,
+      RenderingHints.VALUE_TEXT_ANTIALIAS_ON,
+      RenderingHints.VALUE_FRACTIONALMETRICS_OFF
+    );
     char[] pair = new char[2];
     Glyph g1 = null;
     Glyph g2 = null;
@@ -357,9 +425,11 @@ class RooDisplayFont {
         boundsRight = font.getStringBounds(pair, 1, 2, cxt);
       }
       Rectangle2D boundsPair = font.getStringBounds(pair, 0, 2, cxt);
-      double kerning = Math.round(boundsLeft.getWidth() + boundsRight.getWidth() - boundsPair.getWidth());
+      int kerning = (int) Math.round(
+        boundsLeft.getWidth() + boundsRight.getWidth() - boundsPair.getWidth()
+      );
       if (kerning >= 1) {
-        kerningPairs.add(new KerningPair(candidate, (int) (kerning - 0.0)));
+        kerningPairs.add(new KerningPair(candidate, kerning));
       }
     }
   }
@@ -389,11 +459,19 @@ class RooDisplayFont {
   }
 
   private static boolean isWhitespace(int code) {
-    return code == 0x0020 || code == 0x00A0 ||
-        (code >= 0x0009 && code <= 0x000D) ||
-        code == 0x1680 || code == 0x180E ||
-        (code >= 0x2000 && code <= 0x200B) || code == 0x2028 ||
-        code == 0x2029 || code == 0x205F || code == 0x3000 ||
-        code == 0xFEFF || code == 0x00AD;
+    return (
+      code == 0x0020 ||
+      code == 0x00A0 ||
+      (code >= 0x0009 && code <= 0x000D) ||
+      code == 0x1680 ||
+      code == 0x180E ||
+      (code >= 0x2000 && code <= 0x200B) ||
+      code == 0x2028 ||
+      code == 0x2029 ||
+      code == 0x205F ||
+      code == 0x3000 ||
+      code == 0xFEFF ||
+      code == 0x00AD
+    );
   }
 }
