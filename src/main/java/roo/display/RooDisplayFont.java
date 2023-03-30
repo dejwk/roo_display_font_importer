@@ -357,9 +357,8 @@ class RooDisplayFont {
         boundsRight = font.getStringBounds(pair, 1, 2, cxt);
       }
       Rectangle2D boundsPair = font.getStringBounds(pair, 0, 2, cxt);
-      double kerning = boundsLeft.getWidth() + boundsRight.getWidth() - boundsPair.getWidth();
+      double kerning = Math.round(boundsLeft.getWidth() + boundsRight.getWidth() - boundsPair.getWidth());
       if (kerning >= 1) {
-        // System.out.println("Kerning: " + pair[0] + ", " + pair[1] + ": " + kerning);
         kerningPairs.add(new KerningPair(candidate, (int) (kerning - 0.0)));
       }
     }
