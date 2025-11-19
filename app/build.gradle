@@ -7,17 +7,11 @@
  */
 
 plugins {
-    // Apply the java plugin to add support for Java
-    id 'java'
-
     // Apply the application plugin to add support for building an application
     id 'application'
 
    // id 'jacoco'
 }
-
-// Define the main class for the application
-mainClassName = 'roo.display.FontImporter'
 
 dependencies {
     // This dependency is found on compile classpath of this component and consumers.
@@ -29,7 +23,17 @@ dependencies {
 
 // In this section you declare where to find the dependencies of your project
 repositories {
-    // Use jcenter for resolving your dependencies.
-    // You can declare any Maven/Ivy/file repository here.
-    jcenter()
+    mavenCentral()
+}
+
+// Apply a specific Java toolchain to ease working on different environments.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+application {
+    // Define the main class for the application.
+    mainClass = 'roo.display.FontImporter'
 }
