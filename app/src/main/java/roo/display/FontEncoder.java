@@ -4,6 +4,7 @@ import hexwriter.HexWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.StringWriter;
 import java.io.Writer;
 import java.util.Date;
 import java.util.List;
@@ -39,7 +40,10 @@ class FontEncoder {
   public int writeDefinition(Writer os, String var, boolean rle)
       throws IOException {
     final RooDisplayFont.MaxFontSize maxFontSize;
-    HexWriter hexWriter = new HexWriter(os);
+
+    // Use a StringWriter buffer to generate content with placeholders first.
+    StringWriter buffer = new StringWriter();
+    HexWriter hexWriter = new HexWriter(buffer);
     GlyphEncoder glyphEncoder = new GlyphEncoder(font.getAlphaBits(), rle);
     List<Glyph> glyphs = font.getGlyphs();
 
@@ -84,7 +88,7 @@ class FontEncoder {
     boolean fixedPoint =
         (minAdvance == maxAdvance && font.getKerningPairs().isEmpty());
     // int linesep = (int) Math.round(0.35 * (font.getAscent() +
-    // font.getDescent()));
+    // font.getDescent())).
     int linesep = Math.max(maxBoundingBox.getHeight() -
                                (font.getAscent() - font.getDescent()),
                            (int)(0.2 * (font.getAscent() + font.getDescent())));
@@ -110,11 +114,16 @@ class FontEncoder {
 
     hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
                            font.getFont().getName() + ")\n");
-    hexWriter.printComment("Generated on " + new Date() + "\n");
+    hexWriter.printComment("Generated on " + new Date() + ".\n");
+    hexWriter.printComment("@glyphCount@ glyphs, @totalBytes@ bytes total.\n");
     hexWriter.beginStatic(var);
     hexWriter.newLine();
-    hexWriter.printComment("Header");
+    hexWriter.printComment("Header (@headerBytes@ bytes).");
     hexWriter.newLine();
+
+    // Mark header start for byte counting.
+    int headerStartBytes = hexWriter.getBytesWritten();
+
     hexWriter.printHex16(0x0102);
     hexWriter.printHex8(font.getAlphaBits().bits());
     hexWriter.printHex8(font.getCharset() == RooDisplayFont.Charset.ASCII ? 1
@@ -153,7 +162,12 @@ class FontEncoder {
     hexWriter.newLine();
     hexWriter.newLine();
 
-    hexWriter.printComment("Glyph metrics");
+    hexWriter.printComment(
+        "Glyph metrics (@glyphCount@ glyphs, @glyphMetricsBytes@ bytes).");
+
+    // Mark glyph metrics start for byte counting.
+    int glyphMetricsStartBytes = hexWriter.getBytesWritten();
+
     int currentOffset = 0;
     for (int i = 0; i < glyphs.size(); ++i) {
       RooDisplayFont.Glyph glyph = glyphs.get(i);
@@ -199,7 +213,12 @@ class FontEncoder {
 
     hexWriter.newLine();
     hexWriter.newLine();
-    hexWriter.printComment("Kerning pairs");
+    hexWriter.printComment(
+        "Kerning pairs (@kerningPairCount@ pairs, @kerningBytes@ bytes).");
+
+    // Mark kerning pairs start for byte counting.
+    int kerningStartBytes = hexWriter.getBytesWritten();
+
     for (RooDisplayFont.KerningPair i : font.getKerningPairs()) {
       RooDisplayFont.CodePointPair cp = i.codePoints;
       hexWriter.newLine();
@@ -224,7 +243,11 @@ class FontEncoder {
 
     hexWriter.newLine();
     hexWriter.newLine();
-    hexWriter.printComment("Glyph data");
+    hexWriter.printComment("Glyph data (@glyphDataBytes@ bytes).");
+
+    // Mark glyph data start for byte counting.
+    int glyphDataStartBytes = hexWriter.getBytesWritten();
+
     for (int i = 0; i < glyphs.size(); ++i) {
       RooDisplayFont.Glyph glyph = glyphs.get(i);
       hexWriter.newLine();
@@ -235,9 +258,38 @@ class FontEncoder {
       hexWriter.printBuffer(encodedGlyphs[i].data);
     }
 
+    // Add final statistics comment with placeholder.
+    hexWriter.newLine();
+    hexWriter.printComment("Total: @totalBytes@ bytes.");
+
     hexWriter.end();
 
-    return hexWriter.getBytesWritten();
+    // Now calculate actual byte counts for each section.
+    int headerBytes = glyphMetricsStartBytes - headerStartBytes;
+    int glyphMetricsBytes = kerningStartBytes - glyphMetricsStartBytes;
+    int kerningBytes = glyphDataStartBytes - kerningStartBytes;
+    int glyphDataBytes = hexWriter.getBytesWritten() - glyphDataStartBytes;
+    int totalBytes = hexWriter.getBytesWritten();
+
+    // Get the generated content as a string with placeholders.
+    String content = buffer.toString();
+
+    // Replace all placeholders with actual values.
+    content = content.replace("@glyphCount@", String.valueOf(glyphs.size()));
+    content = content.replace("@totalBytes@", String.valueOf(totalBytes));
+    content = content.replace("@headerBytes@", String.valueOf(headerBytes));
+    content = content.replace("@glyphMetricsBytes@",
+                              String.valueOf(glyphMetricsBytes));
+    content = content.replace("@kerningPairCount@",
+                              String.valueOf(font.getKerningPairs().size()));
+    content = content.replace("@kerningBytes@", String.valueOf(kerningBytes));
+    content =
+        content.replace("@glyphDataBytes@", String.valueOf(glyphDataBytes));
+
+    // Write the final content with substituted values to the actual output.
+    os.write(content);
+
+    return totalBytes;
   }
 
   public static class GlyphEncoder {
