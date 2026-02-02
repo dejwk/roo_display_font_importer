@@ -50,8 +50,15 @@ class FontEncoder {
     // Actually encode all glyphs. We need this to know the sizes in advance, to
     // generate offsets.
     EncodedGlyph[] encodedGlyphs = new EncodedGlyph[glyphs.size()];
+    int compressedGlyphCount = 0;
+    int uncompressedGlyphCount = 0;
     for (int i = 0; i < glyphs.size(); ++i) {
       encodedGlyphs[i] = glyphEncoder.encodeGlyph(glyphs.get(i));
+      if (encodedGlyphs[i].compressed) {
+        compressedGlyphCount++;
+      } else {
+        uncompressedGlyphCount++;
+      }
     }
 
     // Determine the maximum offset into the glyph array space.
@@ -115,7 +122,7 @@ class FontEncoder {
     hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
                            font.getFont().getName() + ")\n");
     hexWriter.printComment("Generated on " + new Date() + ".\n");
-    hexWriter.printComment("@glyphCount@ glyphs, @totalBytes@ bytes total.\n");
+    hexWriter.printComment("@glyphCount@ glyphs (@compressedCount@ compressed, @uncompressedCount@ uncompressed), @totalBytes@ bytes total.\n");
     hexWriter.beginStatic(var);
     hexWriter.newLine();
     hexWriter.printComment("Header (@headerBytes@ bytes).");
@@ -253,6 +260,7 @@ class FontEncoder {
       hexWriter.newLine();
       String comment = ("\"" + (char)glyph.getCodePoint() + "\"");
       comment += String.format(" (U+%04X)", glyph.getCodePoint());
+      comment += encodedGlyphs[i].compressed ? ", RLE" : ", uncompressed";
       hexWriter.printComment(comment);
       hexWriter.newLine();
       hexWriter.printBuffer(encodedGlyphs[i].data);
@@ -276,6 +284,8 @@ class FontEncoder {
 
     // Replace all placeholders with actual values.
     content = content.replace("@glyphCount@", String.valueOf(glyphs.size()));
+    content = content.replace("@compressedCount@", String.valueOf(compressedGlyphCount));
+    content = content.replace("@uncompressedCount@", String.valueOf(uncompressedGlyphCount));
     content = content.replace("@totalBytes@", String.valueOf(totalBytes));
     content = content.replace("@headerBytes@", String.valueOf(headerBytes));
     content = content.replace("@glyphMetricsBytes@",
