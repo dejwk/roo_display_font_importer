@@ -27,7 +27,7 @@ class FontWriter {
     // libDir);
     String fullFontName = "font_" + fontName.replaceAll("-", "_");
     File familyDir = new File(libDir, fontName.replaceAll("-", "_"));
-    familyDir.mkdir();
+    familyDir.mkdirs();
     File outputHeaderFile = new File(familyDir, String.valueOf(fontSize) + ".h");
     File outputCppFile = new File(familyDir, String.valueOf(fontSize) + ".cpp");
     String varName = fullFontName.replaceAll("-", "_").replaceAll(" ", "_")
@@ -45,15 +45,15 @@ class FontWriter {
     Writer cppWriter = new BufferedWriter(
         new OutputStreamWriter(new FileOutputStream(outputCppFile)));
     cppWriter.write("#include \"" + String.valueOf(fontSize) + ".h\"\n");
-    cppWriter.write("#include \"pgmspace.h\"\n");
     cppWriter.write("#include <inttypes.h>\n");
-    cppWriter.write("#include \"roo_display/font/smooth_font.h\"\n\n");
+    cppWriter.write("#include \"roo_display/hal/progmem.h\"\n");
+    cppWriter.write("#include \"roo_display/font/smooth_font_v2.h\"\n\n");
     cppWriter.write("namespace roo_display {\n\n");
     int size = encoder.writeDefinition(cppWriter, varName + "_data", rle);
 
     cppWriter.write("\n");
     cppWriter.write("const Font& " + varName + "() {\n");
-    cppWriter.write("  static SmoothFont font(" + varName + "_data" + ");\n");
+    cppWriter.write("  static SmoothFontV2 font(" + varName + "_data" + ");\n");
     cppWriter.write("  return font;\n");
     cppWriter.write("}\n");
 

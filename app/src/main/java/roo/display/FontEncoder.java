@@ -139,7 +139,7 @@ class FontEncoder {
     // Mark header start for byte counting.
     int headerStartBytes = hexWriter.getBytesWritten();
 
-    hexWriter.printHex16(0x0102);
+    hexWriter.printHex16(0x0200);
     hexWriter.printHex8(font.getAlphaBits().bits());
     hexWriter.printHex8(font.getCharset() == RooDisplayFont.Charset.ASCII ? 1
                                                                           : 2);
@@ -177,12 +177,11 @@ class FontEncoder {
     hexWriter.newLine();
     hexWriter.newLine();
 
-    hexWriter.printComment("Glyph metrics (@glyphMetricsStats@).");
+    hexWriter.printComment("Cmap (@cmapStats@).");
 
-    // Mark glyph metrics start for byte counting.
-    int glyphMetricsStartBytes = hexWriter.getBytesWritten();
+    // Mark cmap start for byte counting.
+    int cmapStartBytes = hexWriter.getBytesWritten();
 
-    int currentOffset = 0;
     for (int i = 0; i < glyphs.size(); ++i) {
       RooDisplayFont.Glyph glyph = glyphs.get(i);
       hexWriter.newLine();
@@ -194,6 +193,25 @@ class FontEncoder {
         hexWriter.printHex16(glyph.getCodePoint());
         break;
       }
+
+      String comment = ("\"" + (char)glyph.getCodePoint() + "\"");
+      comment += String.format(" (U+%04X)", glyph.getCodePoint());
+      // Encode in UTF-8, because why not. It's just a comment.
+      hexWriter.printComment(comment);
+    }
+
+    hexWriter.newLine();
+    hexWriter.newLine();
+
+    hexWriter.printComment("Glyph metrics (@glyphMetricsStats@).");
+
+    // Mark glyph metrics start for byte counting.
+    int glyphMetricsStartBytes = hexWriter.getBytesWritten();
+
+    int currentOffset = 0;
+    for (int i = 0; i < glyphs.size(); ++i) {
+      RooDisplayFont.Glyph glyph = glyphs.get(i);
+      hexWriter.newLine();
       RooDisplayFont.BoundingBox boundingBox = glyph.getBoundingBox();
       // Encode the information whether the glyph is RLE-compressed in the
       // xMin field's MSB (after the sign bit). xMin tends to be closest to
@@ -285,7 +303,8 @@ class FontEncoder {
     hexWriter.end();
 
     // Now calculate actual byte counts for each section.
-    int headerBytes = glyphMetricsStartBytes - headerStartBytes;
+    int headerBytes = cmapStartBytes - headerStartBytes;
+    int cmapBytes = glyphMetricsStartBytes - cmapStartBytes;
     int glyphMetricsBytes = kerningStartBytes - glyphMetricsStartBytes;
     int kerningBytes = glyphDataStartBytes - kerningStartBytes;
     int glyphDataBytes = hexWriter.getBytesWritten() - glyphDataStartBytes;
@@ -305,6 +324,9 @@ class FontEncoder {
     glyphStatsText += ".";
     content = content.replace("@glyphStats@", glyphStatsText);
     content = content.replace("@headerStats@", headerBytes + " bytes");
+    content = content.replace("@cmapStats@",
+                              glyphs.size() + " glyphs, " + cmapBytes +
+                                  " bytes");
     content = content.replace("@glyphMetricsStats@",
                               glyphs.size() + " glyphs, " + glyphMetricsBytes +
                                   " bytes");
