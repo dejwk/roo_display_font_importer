@@ -28,13 +28,19 @@ class FontEncoder {
   }
 
   static class EncodedGlyph {
-    public EncodedGlyph(byte[] data, boolean compressed) {
+    public EncodedGlyph(byte[] data, boolean compressed, int uncompressedSize) {
       this.data = data;
       this.compressed = compressed;
+      this.uncompressedSize = uncompressedSize;
     }
 
     byte[] data;
     boolean compressed;
+    int uncompressedSize;
+
+    public int getBytesSaved() {
+      return compressed ? uncompressedSize - data.length : 0;
+    }
   };
 
   public int writeDefinition(Writer os, String var, boolean rle)
@@ -52,10 +58,12 @@ class FontEncoder {
     EncodedGlyph[] encodedGlyphs = new EncodedGlyph[glyphs.size()];
     int compressedGlyphCount = 0;
     int uncompressedGlyphCount = 0;
+    int totalBytesSaved = 0;
     for (int i = 0; i < glyphs.size(); ++i) {
       encodedGlyphs[i] = glyphEncoder.encodeGlyph(glyphs.get(i));
       if (encodedGlyphs[i].compressed) {
         compressedGlyphCount++;
+        totalBytesSaved += encodedGlyphs[i].getBytesSaved();
       } else {
         uncompressedGlyphCount++;
       }
@@ -122,10 +130,10 @@ class FontEncoder {
     hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
                            font.getFont().getName() + ")\n");
     hexWriter.printComment("Generated on " + new Date() + ".\n");
-    hexWriter.printComment("@glyphCount@ glyphs (@compressedCount@ compressed, @uncompressedCount@ uncompressed), @totalBytes@ bytes total.\n");
+    hexWriter.printComment("@glyphStats@\n");
     hexWriter.beginStatic(var);
     hexWriter.newLine();
-    hexWriter.printComment("Header (@headerBytes@ bytes).");
+    hexWriter.printComment("Header (@headerStats@).");
     hexWriter.newLine();
 
     // Mark header start for byte counting.
@@ -169,8 +177,7 @@ class FontEncoder {
     hexWriter.newLine();
     hexWriter.newLine();
 
-    hexWriter.printComment(
-        "Glyph metrics (@glyphCount@ glyphs, @glyphMetricsBytes@ bytes).");
+    hexWriter.printComment("Glyph metrics (@glyphMetricsStats@).");
 
     // Mark glyph metrics start for byte counting.
     int glyphMetricsStartBytes = hexWriter.getBytesWritten();
@@ -220,8 +227,7 @@ class FontEncoder {
 
     hexWriter.newLine();
     hexWriter.newLine();
-    hexWriter.printComment(
-        "Kerning pairs (@kerningPairCount@ pairs, @kerningBytes@ bytes).");
+    hexWriter.printComment("Kerning pairs (@kerningStats@).");
 
     // Mark kerning pairs start for byte counting.
     int kerningStartBytes = hexWriter.getBytesWritten();
@@ -250,7 +256,7 @@ class FontEncoder {
 
     hexWriter.newLine();
     hexWriter.newLine();
-    hexWriter.printComment("Glyph data (@glyphDataBytes@ bytes).");
+    hexWriter.printComment("Glyph data (@glyphDataStats@).");
 
     // Mark glyph data start for byte counting.
     int glyphDataStartBytes = hexWriter.getBytesWritten();
@@ -260,7 +266,13 @@ class FontEncoder {
       hexWriter.newLine();
       String comment = ("\"" + (char)glyph.getCodePoint() + "\"");
       comment += String.format(" (U+%04X)", glyph.getCodePoint());
-      comment += encodedGlyphs[i].compressed ? ", RLE" : ", uncompressed";
+      if (encodedGlyphs[i].compressed) {
+        int bytesSaved = encodedGlyphs[i].getBytesSaved();
+        comment += ", RLE, " + bytesSaved + " byte" +
+                   (bytesSaved != 1 ? "s" : "") + " saved";
+      } else {
+        comment += ", uncompressed";
+      }
       hexWriter.printComment(comment);
       hexWriter.newLine();
       hexWriter.printBuffer(encodedGlyphs[i].data);
@@ -268,7 +280,7 @@ class FontEncoder {
 
     // Add final statistics comment with placeholder.
     hexWriter.newLine();
-    hexWriter.printComment("Total: @totalBytes@ bytes.");
+    hexWriter.printComment("Total: @totalStats@.");
 
     hexWriter.end();
 
@@ -283,18 +295,24 @@ class FontEncoder {
     String content = buffer.toString();
 
     // Replace all placeholders with actual values.
-    content = content.replace("@glyphCount@", String.valueOf(glyphs.size()));
-    content = content.replace("@compressedCount@", String.valueOf(compressedGlyphCount));
-    content = content.replace("@uncompressedCount@", String.valueOf(uncompressedGlyphCount));
-    content = content.replace("@totalBytes@", String.valueOf(totalBytes));
-    content = content.replace("@headerBytes@", String.valueOf(headerBytes));
-    content = content.replace("@glyphMetricsBytes@",
-                              String.valueOf(glyphMetricsBytes));
-    content = content.replace("@kerningPairCount@",
-                              String.valueOf(font.getKerningPairs().size()));
-    content = content.replace("@kerningBytes@", String.valueOf(kerningBytes));
-    content =
-        content.replace("@glyphDataBytes@", String.valueOf(glyphDataBytes));
+    String glyphStatsText = glyphs.size() + " glyphs (" + compressedGlyphCount +
+                            " compressed, " + uncompressedGlyphCount +
+                            " uncompressed), " + totalBytes + " bytes total";
+    if (totalBytesSaved > 0) {
+      glyphStatsText += ", " + totalBytesSaved + " byte" +
+                        (totalBytesSaved != 1 ? "s" : "") + " saved by RLE";
+    }
+    glyphStatsText += ".";
+    content = content.replace("@glyphStats@", glyphStatsText);
+    content = content.replace("@headerStats@", headerBytes + " bytes");
+    content = content.replace("@glyphMetricsStats@",
+                              glyphs.size() + " glyphs, " + glyphMetricsBytes +
+                                  " bytes");
+    content = content.replace("@kerningStats@", font.getKerningPairs().size() +
+                                                    " pairs, " +
+                                                    kerningBytes + " bytes");
+    content = content.replace("@glyphDataStats@", glyphDataBytes + " bytes");
+    content = content.replace("@totalStats@", totalBytes + " bytes");
 
     // Write the final content with substituted values to the actual output.
     os.write(content);
@@ -338,6 +356,7 @@ class FontEncoder {
         throw new RuntimeException(e);
       }
       byte[] result = os.toByteArray();
+      int uncompressedSize = result.length;
       boolean compressed = false;
       if (rle) {
         os = new ByteArrayOutputStream();
@@ -358,7 +377,7 @@ class FontEncoder {
           compressed = true;
         }
       }
-      return new EncodedGlyph(result, compressed);
+      return new EncodedGlyph(result, compressed, uncompressedSize);
     }
   }
 
