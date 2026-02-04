@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import roo.display.RooDisplayFont.Glyph;
@@ -42,6 +43,145 @@ class FontEncoder {
       return compressed ? uncompressedSize - data.length : 0;
     }
   };
+
+  static class CmapEntry {
+    int rangeStart;
+    int rangeLength;
+    int glyphIdOffset;
+    int dataEntriesCount;
+    long dataOffset;
+    int format; // 0=dense, 1=sparse
+    int[] indirection;
+  }
+
+  static class DenseRange {
+    int startIndex;
+    int endIndex;
+    int startCp;
+    int endCp;
+  }
+
+  private static List<DenseRange> findDenseRanges(List<Glyph> glyphs) {
+    List<DenseRange> denseRanges = new ArrayList<>();
+    // First pass: detect consecutive glyph runs. Runs of length >= 8 become
+    // dense ranges.
+    int i = 0;
+    while (i < glyphs.size()) {
+      int startIdx = i;
+      int startCp = glyphs.get(i).getCodePoint();
+      int j = i + 1;
+      while (j < glyphs.size() && glyphs.get(j).getCodePoint() ==
+                                      glyphs.get(j - 1).getCodePoint() + 1) {
+        ++j;
+      }
+      int len = j - startIdx;
+      if (len >= 8) {
+        DenseRange range = new DenseRange();
+        range.startIndex = startIdx;
+        range.endIndex = j - 1;
+        range.startCp = startCp;
+        range.endCp = glyphs.get(j - 1).getCodePoint();
+        denseRanges.add(range);
+      }
+      i = j;
+    }
+    return denseRanges;
+  }
+
+  private static CmapEntry buildDenseEntry(DenseRange range) {
+    CmapEntry entry = new CmapEntry();
+    entry.rangeStart = range.startCp;
+    entry.rangeLength = range.endCp - range.startCp + 1;
+    entry.glyphIdOffset = range.startIndex;
+    entry.format = 0;
+    entry.dataEntriesCount = 0;
+    entry.indirection = null;
+    return entry;
+  }
+
+  private static CmapEntry
+  buildSparseEntry(List<Glyph> glyphs, int glyphStartIndex, int glyphEndIndex) {
+    if (glyphStartIndex > glyphEndIndex)
+      return null;
+    int count = glyphEndIndex - glyphStartIndex + 1;
+    int rangeStart = glyphs.get(glyphStartIndex).getCodePoint();
+    int rangeEnd = glyphs.get(glyphEndIndex).getCodePoint();
+    CmapEntry entry = new CmapEntry();
+    entry.rangeStart = rangeStart;
+    entry.rangeLength = rangeEnd - rangeStart + 1;
+    entry.glyphIdOffset = glyphStartIndex;
+    entry.format = 1;
+    entry.dataEntriesCount = count;
+    entry.indirection = new int[count];
+    for (int i = 0; i < count; ++i) {
+      entry.indirection[i] =
+          glyphs.get(glyphStartIndex + i).getCodePoint() - rangeStart;
+    }
+    return entry;
+  }
+
+  private static List<CmapEntry> buildCmapEntries(List<Glyph> glyphs) {
+    List<CmapEntry> entries = new ArrayList<>();
+    if (glyphs.isEmpty())
+      return entries;
+
+    // Second pass: emit sparse ranges to cover gaps between dense ranges.
+    // Sparse ranges are trimmed to the first/last glyph in their segment.
+    List<DenseRange> denseRanges = findDenseRanges(glyphs);
+    if (denseRanges.isEmpty()) {
+      CmapEntry sparse = buildSparseEntry(glyphs, 0, glyphs.size() - 1);
+      if (sparse != null)
+        entries.add(sparse);
+      return entries;
+    }
+
+    int glyphIndex = 0;
+    int prevDenseEndCp = denseRanges.get(0).startCp - 1;
+    for (int r = 0; r < denseRanges.size(); ++r) {
+      DenseRange dense = denseRanges.get(r);
+      int sparseStartCp =
+          (r == 0) ? glyphs.get(0).getCodePoint() : prevDenseEndCp + 1;
+      int sparseEndCp = dense.startCp - 1;
+      if (sparseStartCp <= sparseEndCp) {
+        int sparseGlyphStart = glyphIndex;
+        while (glyphIndex < glyphs.size() &&
+               glyphs.get(glyphIndex).getCodePoint() < dense.startCp) {
+          ++glyphIndex;
+        }
+        int sparseGlyphEnd = glyphIndex - 1;
+        CmapEntry sparse =
+            buildSparseEntry(glyphs, sparseGlyphStart, sparseGlyphEnd);
+        if (sparse != null)
+          entries.add(sparse);
+      }
+
+      entries.add(buildDenseEntry(dense));
+      glyphIndex = dense.endIndex + 1;
+      prevDenseEndCp = dense.endCp;
+    }
+
+    DenseRange lastDense = denseRanges.get(denseRanges.size() - 1);
+    int tailStartCp = lastDense.endCp + 1;
+    int tailEndCp = glyphs.get(glyphs.size() - 1).getCodePoint();
+    if (tailStartCp <= tailEndCp) {
+      int sparseGlyphStart = lastDense.endIndex + 1;
+      int sparseGlyphEnd = glyphs.size() - 1;
+      CmapEntry sparse =
+          buildSparseEntry(glyphs, sparseGlyphStart, sparseGlyphEnd);
+      if (sparse != null)
+        entries.add(sparse);
+    }
+
+    return entries;
+  }
+
+  private static void printHex32(HexWriter writer, long value)
+      throws IOException {
+    int hi = (int)((value >> 16) & 0xFFFF);
+    int lo = (int)(value & 0xFFFF);
+    writer.printHex16(hi);
+    writer.printHex16(lo);
+  }
 
   public int writeDefinition(Writer os, String var, boolean rle)
       throws IOException {
@@ -146,8 +286,11 @@ class FontEncoder {
     hexWriter.printHex8(maxFontMetricBytes);
     hexWriter.printHex8(offsetBytes);
     hexWriter.printHex8(rle ? 0x01 : 0x00);
+    List<CmapEntry> cmapEntries = buildCmapEntries(glyphs);
+
     hexWriter.printHex16(glyphs.size());
     hexWriter.printHex16(font.getKerningPairs().size());
+    hexWriter.printHex16(cmapEntries.size());
 
     hexWriter.newLine();
     metricWriter.print(maxBoundingBox.xMin);
@@ -181,27 +324,66 @@ class FontEncoder {
 
     // Mark cmap start for byte counting.
     int cmapStartBytes = hexWriter.getBytesWritten();
-
-    for (int i = 0; i < glyphs.size(); ++i) {
-      RooDisplayFont.Glyph glyph = glyphs.get(i);
-      hexWriter.newLine();
-      switch (font.getCharset()) {
-      case ASCII:
-        hexWriter.printHex8(glyph.getCodePoint());
-        break;
-      case UTF8:
-        hexWriter.printHex16(glyph.getCodePoint());
-        break;
+    int cmapTableBytes = cmapEntries.size() * 12;
+    int indirectionOffset = cmapStartBytes + cmapTableBytes;
+    int currentIndirectionOffset = 0;
+    for (CmapEntry entry : cmapEntries) {
+      if (entry.format == 1 && entry.dataEntriesCount > 0) {
+        entry.dataOffset = indirectionOffset + currentIndirectionOffset;
+        currentIndirectionOffset += entry.dataEntriesCount * 2;
+      } else {
+        entry.dataOffset = 0;
       }
+    }
 
-      String comment = ("\"" + (char)glyph.getCodePoint() + "\"");
-      comment += String.format(" (U+%04X)", glyph.getCodePoint());
-      // Encode in UTF-8, because why not. It's just a comment.
+    for (CmapEntry entry : cmapEntries) {
+      hexWriter.newLine();
+      hexWriter.printHex16(entry.rangeStart);
+      hexWriter.printHex16(entry.rangeLength);
+      hexWriter.printHex16(entry.glyphIdOffset);
+      hexWriter.printHex16(entry.dataEntriesCount);
+      hexWriter.printHex24((int)entry.dataOffset);
+      hexWriter.printHex8(entry.format);
+
+      String comment = String.format("U+%04X..U+%04X", entry.rangeStart,
+                                     entry.rangeStart + entry.rangeLength - 1);
+      comment += (entry.format == 0) ? " dense." : " sparse.";
       hexWriter.printComment(comment);
     }
 
-    hexWriter.newLine();
-    hexWriter.newLine();
+    boolean wroteSparseSection = false;
+    for (CmapEntry entry : cmapEntries) {
+      if (entry.format != 1 || entry.dataEntriesCount == 0) {
+        continue;
+      }
+      int glyphStart = entry.glyphIdOffset;
+      int glyphEnd = entry.glyphIdOffset + entry.dataEntriesCount - 1;
+      int rangeEnd = entry.rangeStart + entry.rangeLength - 1;
+      if (wroteSparseSection) {
+        hexWriter.newLine();
+      } else {
+        hexWriter.newLine();
+        hexWriter.newLine();
+      }
+      hexWriter.printComment(String.format(
+          "Sparse indirection: glyphs %d..%d, range U+%04X..U+%04X.",
+          glyphStart, glyphEnd, entry.rangeStart, rangeEnd));
+      hexWriter.newLine();
+      for (int i = 0; i < entry.indirection.length; ++i) {
+        hexWriter.printHex16(entry.indirection[i]);
+        int codePoint = entry.rangeStart + entry.indirection[i];
+        hexWriter.printComment(String.format("U+%04X.", codePoint));
+        hexWriter.newLine();
+      }
+      wroteSparseSection = true;
+    }
+
+    if (wroteSparseSection) {
+      hexWriter.newLine();
+    } else {
+      hexWriter.newLine();
+      hexWriter.newLine();
+    }
 
     hexWriter.printComment("Glyph metrics (@glyphMetricsStats@).");
 
@@ -324,9 +506,8 @@ class FontEncoder {
     glyphStatsText += ".";
     content = content.replace("@glyphStats@", glyphStatsText);
     content = content.replace("@headerStats@", headerBytes + " bytes");
-    content = content.replace("@cmapStats@",
-                              glyphs.size() + " glyphs, " + cmapBytes +
-                                  " bytes");
+    content = content.replace("@cmapStats@", glyphs.size() + " glyphs, " +
+                                                 cmapBytes + " bytes");
     content = content.replace("@glyphMetricsStats@",
                               glyphs.size() + " glyphs, " + glyphMetricsBytes +
                                   " bytes");
