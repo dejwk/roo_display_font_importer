@@ -35,7 +35,7 @@ class FontImporter {
       name = "fontimporter", mixinStandardHelpOptions = true, version = "1.0")
   private static class Main implements Callable<Void> {
 
-    @Option(names = {"--output-dir"},
+    @Option(names = {"-output-dir", "--output-dir"},
             description =
                 "where to place resulting font files. Defaults to cwd.")
     File outputDir;
