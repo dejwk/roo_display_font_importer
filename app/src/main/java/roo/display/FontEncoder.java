@@ -653,8 +653,12 @@ class FontEncoder {
       comment += String.format(" (U+%04X)", glyph.getCodePoint());
       if (encodedGlyphs[i].compressed) {
         int bytesSaved = encodedGlyphs[i].getBytesSaved();
-        comment += ", RLE, " + bytesSaved + " byte" +
-                   (bytesSaved != 1 ? "s" : "") + " saved";
+        comment +=
+            ", RLE, " + bytesSaved + " byte" + (bytesSaved != 1 ? "s" : "") +
+            " saved (" +
+            String.format("%.1f", 100.0 * bytesSaved /
+                                      encodedGlyphs[i].uncompressedSize) +
+            "%)";
       } else {
         comment += ", uncompressed";
       }
