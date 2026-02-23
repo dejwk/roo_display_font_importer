@@ -14,6 +14,10 @@ import roo.display.encode.*;
 import roo.display.encode.alpha4.*;
 
 class FontEncoder {
+  private static final int KERNING_FORMAT_NONE = 0;
+  private static final int KERNING_FORMAT_PAIRS = 1;
+  private static final int KERNING_FORMAT_CLASSES = 2;
+
   boolean rle;
   final RooDisplayFont font;
 
@@ -43,6 +47,63 @@ class FontEncoder {
       return compressed ? uncompressedSize - data.length : 0;
     }
   };
+
+  static class KerningClassEntry {
+    public final int destGlyphIndex;
+    public final int kern;
+
+    KerningClassEntry(int destGlyphIndex, int kern) {
+      this.destGlyphIndex = destGlyphIndex;
+      this.kern = kern;
+    }
+  }
+
+  static class KerningSourceEntry {
+    public final int sourceGlyphIndex;
+    public final int classId;
+
+    KerningSourceEntry(int sourceGlyphIndex, int classId) {
+      this.sourceGlyphIndex = sourceGlyphIndex;
+      this.classId = classId;
+    }
+  }
+
+  static class KerningClasses {
+    final int format;
+    final int sourceCount;
+    final int classCount;
+    final int entryCount;
+    final List<KerningSourceEntry> sources;
+    final List<List<KerningClassEntry>> classes;
+
+    KerningClasses(int format, int sourceCount, int classCount, int entryCount,
+                   List<KerningSourceEntry> sources,
+                   List<List<KerningClassEntry>> classes) {
+      this.format = format;
+      this.sourceCount = sourceCount;
+      this.classCount = classCount;
+      this.entryCount = entryCount;
+      this.sources = sources;
+      this.classes = classes;
+    }
+  }
+
+  static class KerningPairEntry {
+    public final int leftGlyphIndex;
+    public final int rightGlyphIndex;
+    public final int kern;
+    public final int leftCodePoint;
+    public final int rightCodePoint;
+
+    KerningPairEntry(int leftGlyphIndex, int rightGlyphIndex, int kern,
+                     int leftCodePoint, int rightCodePoint) {
+      this.leftGlyphIndex = leftGlyphIndex;
+      this.rightGlyphIndex = rightGlyphIndex;
+      this.kern = kern;
+      this.leftCodePoint = leftCodePoint;
+      this.rightCodePoint = rightCodePoint;
+    }
+  }
 
   static class CmapEntry {
     int rangeStart;
@@ -193,6 +254,19 @@ class FontEncoder {
     GlyphEncoder glyphEncoder = new GlyphEncoder(font.getAlphaBits(), rle);
     List<Glyph> glyphs = font.getGlyphs();
 
+    // Build a glyph index map for kerning (glyph index is the position in
+    // glyph list).
+    java.util.Map<Integer, Integer> codepointToGlyphIndex =
+        new java.util.HashMap<>();
+    for (int i = 0; i < glyphs.size(); ++i) {
+      codepointToGlyphIndex.put(glyphs.get(i).getCodePoint(), i);
+    }
+
+    KerningClasses kerningClasses =
+        encodeKerningClasses(font.getKerningPairs(), codepointToGlyphIndex);
+    List<KerningPairEntry> kerningPairs =
+        encodeKerningPairs(font.getKerningPairs(), codepointToGlyphIndex);
+
     // Actually encode all glyphs. We need this to know the sizes in advance, to
     // generate offsets.
     EncodedGlyph[] encodedGlyphs = new EncodedGlyph[glyphs.size()];
@@ -267,6 +341,45 @@ class FontEncoder {
         new FontMetricWriter(maxFontMetricBytes, hexWriter);
     OffsetWriter offsetWriter = new OffsetWriter(offsetBytes, hexWriter);
 
+    List<CmapEntry> cmapEntries = buildCmapEntries(glyphs);
+
+    int encodingBytes =
+        font.getCharset() == RooDisplayFont.Charset.ASCII ? 1 : 2;
+    int glyphMetricsBytes =
+        glyphs.size() * ((5 * maxFontMetricBytes) + offsetBytes);
+    int cmapTableBytes = cmapEntries.size() * 12;
+    int indirectionBytes = 0;
+    for (CmapEntry entry : cmapEntries) {
+      if (entry.format == 1 && entry.dataEntriesCount > 0) {
+        indirectionBytes += entry.dataEntriesCount * 2;
+      }
+    }
+    int cmapBytes = cmapTableBytes + indirectionBytes;
+
+    int glyphIndexBytes = glyphs.size() < (1 << 8) ? 1 : 2;
+    int kerningHeaderBytes;
+    int kerningBytes;
+    if (kerningClasses.format == KERNING_FORMAT_CLASSES) {
+      int entrySize = glyphIndexBytes + 1;
+      kerningHeaderBytes = 6;
+      kerningBytes =
+          kerningHeaderBytes + kerningClasses.sourceCount * entrySize +
+          kerningClasses.classCount * 4 + kerningClasses.entryCount * entrySize;
+    } else if (kerningClasses.format == KERNING_FORMAT_PAIRS) {
+      kerningHeaderBytes = 2;
+      kerningBytes =
+          kerningHeaderBytes + kerningPairs.size() * (2 * glyphIndexBytes + 1);
+    } else {
+      kerningHeaderBytes = 0;
+      kerningBytes = 0;
+    }
+
+    int headerBytes = 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 +
+                      (11 * maxFontMetricBytes) + encodingBytes + 1 + 3 + 2 +
+                      1 + 1;
+    int glyphMetricsOffset = headerBytes + cmapBytes;
+    int glyphDataOffset = glyphMetricsOffset + glyphMetricsBytes + kerningBytes;
+
     hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
                            font.getFont().getName() + ")\n");
     hexWriter.printComment("Generated on " + new Date() + ".\n");
@@ -286,10 +399,7 @@ class FontEncoder {
     hexWriter.printHex8(maxFontMetricBytes);
     hexWriter.printHex8(offsetBytes);
     hexWriter.printHex8(rle ? 0x01 : 0x00);
-    List<CmapEntry> cmapEntries = buildCmapEntries(glyphs);
-
     hexWriter.printHex16(glyphs.size());
-    hexWriter.printHex16(font.getKerningPairs().size());
     hexWriter.printHex16(cmapEntries.size());
 
     hexWriter.newLine();
@@ -317,6 +427,14 @@ class FontEncoder {
     }
     }
 
+    // Kerning format (2 LSBs), reserved bits must be 0.
+    hexWriter.newLine();
+    hexWriter.printHex8(kerningClasses.format & 0x03);
+    hexWriter.printHex16(glyphMetricsOffset);
+    hexWriter.printHex24(glyphDataOffset);
+    hexWriter.printHex8(0x00);
+    hexWriter.printHex8(0x00);
+
     hexWriter.newLine();
     hexWriter.newLine();
 
@@ -324,7 +442,7 @@ class FontEncoder {
 
     // Mark cmap start for byte counting.
     int cmapStartBytes = hexWriter.getBytesWritten();
-    int cmapTableBytes = cmapEntries.size() * 12;
+    cmapTableBytes = cmapEntries.size() * 12;
     int indirectionOffset = cmapStartBytes + cmapTableBytes;
     int currentIndirectionOffset = 0;
     for (CmapEntry entry : cmapEntries) {
@@ -427,36 +545,103 @@ class FontEncoder {
 
     hexWriter.newLine();
     hexWriter.newLine();
-    hexWriter.printComment("Kerning pairs (@kerningStats@).");
+    hexWriter.printComment("Kerning (@kerningDetails@).");
+    hexWriter.newLine();
 
     // Mark kerning pairs start for byte counting.
     int kerningStartBytes = hexWriter.getBytesWritten();
 
-    for (RooDisplayFont.KerningPair i : font.getKerningPairs()) {
-      RooDisplayFont.CodePointPair cp = i.codePoints;
+    if (kerningClasses.format == KERNING_FORMAT_CLASSES) {
       hexWriter.newLine();
-      switch (font.getCharset()) {
-      case ASCII:
-        hexWriter.printHex8(cp.left);
-        hexWriter.printHex8(cp.right);
-        break;
-      case UTF8:
-        hexWriter.printHex16(cp.left);
-        hexWriter.printHex16(cp.right);
-        break;
+      hexWriter.printComment("Kerning header.");
+      hexWriter.newLine();
+      hexWriter.printHex16(kerningClasses.classCount);
+      hexWriter.printHex16(kerningClasses.sourceCount);
+      hexWriter.printHex16(kerningClasses.entryCount);
+
+      hexWriter.newLine();
+      hexWriter.newLine();
+      hexWriter.printComment("Kerning sources.");
+      // Sources: (glyph_index, class_id)
+      for (KerningSourceEntry entry : kerningClasses.sources) {
+        hexWriter.newLine();
+        if (glyphIndexBytes == 1) {
+          hexWriter.printHex8(entry.sourceGlyphIndex);
+        } else {
+          hexWriter.printHex16(entry.sourceGlyphIndex);
+        }
+        hexWriter.printHex8(entry.classId);
+        int cp = glyphs.get(entry.sourceGlyphIndex).getCodePoint();
+        hexWriter.printComment("\"" + (char)cp + "\" (" +
+                               String.format("U+%04X", cp) + ") -> class " +
+                               entry.classId);
       }
-      if (i.kern < 1 || i.kern > 255) {
-        throw new IllegalArgumentException("Kern outside range: " + i.kern);
+
+      hexWriter.newLine();
+      hexWriter.newLine();
+      hexWriter.printComment("Kerning classes.");
+      // Classes: (offset, count)
+      int entryOffset = 0;
+      for (int classId = 0; classId < kerningClasses.classes.size();
+           ++classId) {
+        List<KerningClassEntry> entries = kerningClasses.classes.get(classId);
+        hexWriter.newLine();
+        hexWriter.printHex16(entryOffset);
+        hexWriter.printHex16(entries.size());
+        hexWriter.printComment("class " + classId + " entries");
+        entryOffset += entries.size();
       }
-      hexWriter.printHex8(i.kern);
-      hexWriter.printComment(
-          "" + (char)cp.left + (char)cp.right +
-          String.format(" (U+%04X U+%04X)", cp.left, cp.right));
+
+      hexWriter.newLine();
+      hexWriter.newLine();
+      hexWriter.printComment("Kerning destinations.");
+      // Class entries: (dest_glyph_index, weight)
+      for (int classId = 0; classId < kerningClasses.classes.size();
+           ++classId) {
+        for (KerningClassEntry entry : kerningClasses.classes.get(classId)) {
+          hexWriter.newLine();
+          if (glyphIndexBytes == 1) {
+            hexWriter.printHex8(entry.destGlyphIndex);
+          } else {
+            hexWriter.printHex16(entry.destGlyphIndex);
+          }
+          hexWriter.printHex8(entry.kern);
+          int cp = glyphs.get(entry.destGlyphIndex).getCodePoint();
+          hexWriter.printComment("class " + classId + " -> \"" + (char)cp +
+                                 "\" (" + String.format("U+%04X", cp) + ")");
+        }
+      }
+    } else if (kerningClasses.format == KERNING_FORMAT_PAIRS) {
+      hexWriter.newLine();
+      hexWriter.printComment("Kerning header.");
+      hexWriter.newLine();
+      hexWriter.printHex16(kerningPairs.size());
+
+      hexWriter.newLine();
+      hexWriter.newLine();
+      hexWriter.printComment("Kerning destinations.");
+      for (KerningPairEntry entry : kerningPairs) {
+        hexWriter.newLine();
+        if (glyphIndexBytes == 1) {
+          hexWriter.printHex8(entry.leftGlyphIndex);
+          hexWriter.printHex8(entry.rightGlyphIndex);
+        } else {
+          hexWriter.printHex16(entry.leftGlyphIndex);
+          hexWriter.printHex16(entry.rightGlyphIndex);
+        }
+        hexWriter.printHex8(entry.kern);
+        hexWriter.printComment("\"" + (char)entry.leftCodePoint + "\" (" +
+                               String.format("U+%04X", entry.leftCodePoint) +
+                               ") \"" + (char)entry.rightCodePoint + "\" (" +
+                               String.format("U+%04X", entry.rightCodePoint) +
+                               ")");
+      }
     }
 
     hexWriter.newLine();
     hexWriter.newLine();
     hexWriter.printComment("Glyph data (@glyphDataStats@).");
+    hexWriter.newLine();
 
     // Mark glyph data start for byte counting.
     int glyphDataStartBytes = hexWriter.getBytesWritten();
@@ -485,12 +670,30 @@ class FontEncoder {
     hexWriter.end();
 
     // Now calculate actual byte counts for each section.
-    int headerBytes = cmapStartBytes - headerStartBytes;
-    int cmapBytes = glyphMetricsStartBytes - cmapStartBytes;
-    int glyphMetricsBytes = kerningStartBytes - glyphMetricsStartBytes;
-    int kerningBytes = glyphDataStartBytes - kerningStartBytes;
-    int glyphDataBytes = hexWriter.getBytesWritten() - glyphDataStartBytes;
+    int observedHeaderBytes = cmapStartBytes - headerStartBytes;
+    int observedCmapBytes = glyphMetricsStartBytes - cmapStartBytes;
+    int observedGlyphMetricsBytes = kerningStartBytes - glyphMetricsStartBytes;
+    int observedKerningBytes = glyphDataStartBytes - kerningStartBytes;
+    int observedGlyphDataBytes =
+        hexWriter.getBytesWritten() - glyphDataStartBytes;
     int totalBytes = hexWriter.getBytesWritten();
+
+    if (glyphMetricsStartBytes != glyphMetricsOffset) {
+      throw new IllegalStateException(
+          "Glyph metrics offset mismatch: expected " + glyphMetricsOffset +
+          ", actual " + glyphMetricsStartBytes);
+    }
+    if (glyphDataStartBytes != glyphDataOffset) {
+      throw new IllegalStateException("Glyph data offset mismatch: expected " +
+                                      glyphDataOffset + ", actual " +
+                                      glyphDataStartBytes);
+    }
+
+    if (kerningBytes != observedKerningBytes) {
+      throw new IllegalStateException("Kerning size mismatch: expected " +
+                                      kerningBytes + ", actual " +
+                                      observedKerningBytes);
+    }
 
     // Get the generated content as a string with placeholders.
     String content = buffer.toString();
@@ -505,22 +708,129 @@ class FontEncoder {
     }
     glyphStatsText += ".";
     content = content.replace("@glyphStats@", glyphStatsText);
-    content = content.replace("@headerStats@", headerBytes + " bytes");
+    content = content.replace("@headerStats@", observedHeaderBytes + (" byte"
+                                                                      + "s"));
     content = content.replace("@cmapStats@", glyphs.size() + " glyphs, " +
-                                                 cmapBytes + " bytes");
+                                                 observedCmapBytes + " bytes");
     content = content.replace("@glyphMetricsStats@",
-                              glyphs.size() + " glyphs, " + glyphMetricsBytes +
-                                  " bytes");
-    content = content.replace("@kerningStats@", font.getKerningPairs().size() +
-                                                    " pairs, " +
-                                                    kerningBytes + " bytes");
-    content = content.replace("@glyphDataStats@", glyphDataBytes + " bytes");
+                              glyphs.size() + " glyphs, " +
+                                  observedGlyphMetricsBytes + " bytes");
+    if (kerningClasses.format == KERNING_FORMAT_CLASSES) {
+      content = content.replace("@kerningDetails@",
+                                kerningClasses.classCount + " classes, " +
+                                    kerningClasses.sourceCount + " sources, " +
+                                    kerningClasses.entryCount + " entries, " +
+                                    observedKerningBytes + " bytes");
+    } else if (kerningClasses.format == KERNING_FORMAT_PAIRS) {
+      content = content.replace("@kerningDetails@",
+                                kerningPairs.size() + " pairs, " +
+                                    observedKerningBytes + " bytes");
+    } else {
+      content = content.replace("@kerningDetails@", "none");
+    }
+    content = content.replace("@glyphDataStats@",
+                              observedGlyphDataBytes + " bytes");
     content = content.replace("@totalStats@", totalBytes + " bytes");
 
     // Write the final content with substituted values to the actual output.
     os.write(content);
 
     return totalBytes;
+  }
+
+  private KerningClasses
+  encodeKerningClasses(List<RooDisplayFont.KerningPair> kerningPairs,
+                       java.util.Map<Integer, Integer> codepointToGlyphIndex) {
+    if (kerningPairs.isEmpty()) {
+      return new KerningClasses(KERNING_FORMAT_NONE, 0, 0, 0,
+                                java.util.Collections.emptyList(),
+                                java.util.Collections.emptyList());
+    }
+
+    java.util.Map<Integer, java.util.List<KerningClassEntry>> bySource =
+        new java.util.TreeMap<>();
+
+    for (RooDisplayFont.KerningPair pair : kerningPairs) {
+      RooDisplayFont.CodePointPair cp = pair.codePoints;
+      Integer leftIndex = codepointToGlyphIndex.get(cp.left);
+      Integer rightIndex = codepointToGlyphIndex.get(cp.right);
+      if (leftIndex == null || rightIndex == null) {
+        throw new IllegalArgumentException(
+            "Kerning pair refers to missing glyph: " +
+            String.format("U+%04X U+%04X", cp.left, cp.right));
+      }
+      if (pair.kern < 1 || pair.kern > 255) {
+        throw new IllegalArgumentException("Kern outside range: " + pair.kern);
+      }
+      bySource.computeIfAbsent(leftIndex, k -> new java.util.ArrayList<>())
+          .add(new KerningClassEntry(rightIndex, pair.kern));
+    }
+
+    java.util.Map<java.util.List<Integer>, Integer> classIds =
+        new java.util.LinkedHashMap<>();
+    java.util.List<java.util.List<KerningClassEntry>> classes =
+        new java.util.ArrayList<>();
+    java.util.List<KerningSourceEntry> sources = new java.util.ArrayList<>();
+
+    for (java.util.Map.Entry<Integer, java.util.List<KerningClassEntry>> entry :
+         bySource.entrySet()) {
+      java.util.List<KerningClassEntry> dests = entry.getValue();
+      dests.sort((a, b) -> Integer.compare(a.destGlyphIndex, b.destGlyphIndex));
+
+      java.util.List<Integer> key = new java.util.ArrayList<>(dests.size());
+      for (KerningClassEntry d : dests) {
+        key.add((d.destGlyphIndex << 8) | (d.kern & 0xFF));
+      }
+
+      Integer classId = classIds.get(key);
+      if (classId == null) {
+        classId = classIds.size();
+        classIds.put(key, classId);
+        classes.add(dests);
+      }
+      sources.add(new KerningSourceEntry(entry.getKey(), classId));
+    }
+
+    if (classes.size() > 255) {
+      throw new IllegalArgumentException("Too many kerning classes: " +
+                                         classes.size());
+    }
+
+    int entryCount = 0;
+    for (java.util.List<KerningClassEntry> cls : classes) {
+      entryCount += cls.size();
+    }
+
+    return new KerningClasses(KERNING_FORMAT_CLASSES, sources.size(),
+                              classes.size(), entryCount, sources, classes);
+  }
+
+  private List<KerningPairEntry>
+  encodeKerningPairs(List<RooDisplayFont.KerningPair> kerningPairs,
+                     java.util.Map<Integer, Integer> codepointToGlyphIndex) {
+    List<KerningPairEntry> result = new java.util.ArrayList<>();
+    for (RooDisplayFont.KerningPair pair : kerningPairs) {
+      RooDisplayFont.CodePointPair cp = pair.codePoints;
+      Integer leftIndex = codepointToGlyphIndex.get(cp.left);
+      Integer rightIndex = codepointToGlyphIndex.get(cp.right);
+      if (leftIndex == null || rightIndex == null) {
+        throw new IllegalArgumentException(
+            "Kerning pair refers to missing glyph: " +
+            String.format("U+%04X U+%04X", cp.left, cp.right));
+      }
+      if (pair.kern < 1 || pair.kern > 255) {
+        throw new IllegalArgumentException("Kern outside range: " + pair.kern);
+      }
+      result.add(new KerningPairEntry(leftIndex, rightIndex, pair.kern, cp.left,
+                                      cp.right));
+    }
+    result.sort((a, b) -> {
+      if (a.leftGlyphIndex != b.leftGlyphIndex) {
+        return Integer.compare(a.leftGlyphIndex, b.leftGlyphIndex);
+      }
+      return Integer.compare(a.rightGlyphIndex, b.rightGlyphIndex);
+    });
+    return result;
   }
 
   public static class GlyphEncoder {

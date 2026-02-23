@@ -11,9 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
-
+import java.util.regex.Pattern;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ExecutionException;
@@ -30,27 +29,41 @@ class FontImporter {
     }
   }
 
-  @Command(description = "Imports specified fonts to be used with the roo.display library", name = "fontimporter", mixinStandardHelpOptions = true, version = "1.0")
+  @Command(
+      description =
+          "Imports specified fonts to be used with the roo.display library",
+      name = "fontimporter", mixinStandardHelpOptions = true, version = "1.0")
   private static class Main implements Callable<Void> {
 
-    @Option(names = { "--output-dir" }, description = "where to place resulting font files. Defaults to cwd.")
+    @Option(names = {"--output-dir"},
+            description =
+                "where to place resulting font files. Defaults to cwd.")
     File outputDir;
 
-    @Option(names = "-font", description = "PostScript name of the font to generate.")
+    @Option(names = "-font",
+            description = "PostScript name of the font to generate.")
     private String inputFontName;
 
     @Option(names = "-sizes", description = "Font size(s) to generate.")
     private String fontSizes;
 
-    @Option(names = "-list", description = "Lists fonts available in the system.")
+    @Option(names = "-list",
+            description = "Lists fonts available in the system.")
     private boolean listFonts;
 
-    @Option(names = "-charset", defaultValue = "21-17F,3A9,3BC,3C0,2013-2014,20AC,20BF,2018-2022,2026,2030,2039-203A,2044,2122,2152,2202,2206,221A,221E,2248,2260,2264-2265,FB01-FB02", description = "Comma-separated list of character ranges to include (e.g., U+0020..U+007F", split = ",")
+    @Option(names = "-charset",
+            defaultValue = "21-17F,3A9,3BC,3C0,2013-2014,20AC,20BF,2018-2022,"
+                           + "2026,2030,2039-203A,2044,2122,2152,2202,2206,"
+                           + "221A,221E,2248,2260,2264-2265,FB01-FB02",
+            description = "Comma-separated list of character ranges to "
+                          + "include (e.g., U+0020..U+007F",
+            split = ",")
     private List<String> charsetRanges;
 
     @Override
     public Void call() throws Exception {
-      GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+      GraphicsEnvironment ge =
+          GraphicsEnvironment.getLocalGraphicsEnvironment();
       Font[] fonts = ge.getAllFonts();
       Map<String, Font> map = new TreeMap<>();
 
@@ -64,29 +77,36 @@ class FontImporter {
       }
 
       if (inputFontName == null || fontSizes == null) {
-        throw new IllegalArgumentException("-font and -sizes are required; see -help.");
+        throw new IllegalArgumentException(
+            "-font and -sizes are required; see -help.");
       }
 
       Map<TextAttribute, Object> attributes = new HashMap<>();
       attributes.put(TextAttribute.KERNING, TextAttribute.KERNING_ON);
       boolean smooth = true;
       char[] charset = parseCharset(charsetRanges);
+      File outDir = outputDir != null ? outputDir : new File(".");
       System.out.println("Generating " + inputFontName);
+      System.out.println("Output directory: " + outDir.getAbsolutePath());
       Font instance = map.get(inputFontName);
       if (instance == null) {
         System.out.println("FAILED: " + inputFontName + " not found.");
         return null;
       }
 
-      int[] sizes = Arrays.asList(fontSizes.split(",")).stream().map(String::trim).mapToInt(Integer::parseInt)
-          .toArray();
+      int[] sizes = Arrays.asList(fontSizes.split(","))
+                        .stream()
+                        .map(String::trim)
+                        .mapToInt(Integer::parseInt)
+                        .toArray();
 
       List<RooDisplayFont.CodePointPair> candidates = null;
       if (sizes.length > 1) {
-        // Narrow down candidate kerning pairs by looking at all possible pairs for the
-        // largest possible size.
+        // Narrow down candidate kerning pairs by looking at all possible pairs
+        // for the largest possible size.
         System.out.print("Identify kerning pair candidates... ");
-        Font font = instance.deriveFont(attributes).deriveFont(Font.PLAIN, sizes[sizes.length - 1]);
+        Font font = instance.deriveFont(attributes)
+                        .deriveFont(Font.PLAIN, sizes[sizes.length - 1]);
         RooDisplayFont f = new RooDisplayFont(font, smooth, charset);
         System.out.println(f.getGlyphCount());
         f.generateKerningPairs(null);
@@ -98,11 +118,12 @@ class FontImporter {
       }
 
       for (int fontSize : sizes) {
-        Font font = instance.deriveFont(attributes).deriveFont(Font.PLAIN, fontSize);
+        Font font =
+            instance.deriveFont(attributes).deriveFont(Font.PLAIN, fontSize);
         RooDisplayFont f = new RooDisplayFont(font, smooth, charset);
         System.out.print("Generating size " + fontSize + " ... ");
         f.generateKerningPairs(candidates);
-        FontWriter writer = new FontWriter(outputDir, true);
+        FontWriter writer = new FontWriter(outDir, true);
         FontEncoder encoder = new FontEncoder(f);
         int size = writer.writeFont(encoder, inputFontName, fontSize);
         System.out.print("Done (" + size + " bytes.)\n");
@@ -111,7 +132,8 @@ class FontImporter {
     }
   }
 
-  private static Pattern rangePattern = Pattern.compile("([Uu]\\+)?([0-9A-Fa-f]+)(\\-([Uu]\\+)?([0-9A-Fa-f]+))?");
+  private static Pattern rangePattern =
+      Pattern.compile("([Uu]\\+)?([0-9A-Fa-f]+)(\\-([Uu]\\+)?([0-9A-Fa-f]+))?");
 
   private static char[] parseCharset(List<String> charsetRanges) {
     List<Character> list = new ArrayList<>();
@@ -126,7 +148,7 @@ class FontImporter {
         rangeEnd = Integer.decode("0x" + matcher.group(5));
       }
       for (int i = rangeStart; i <= rangeEnd; i++) {
-        list.add((char) i);
+        list.add((char)i);
       }
     }
     char[] result = new char[list.size()];
