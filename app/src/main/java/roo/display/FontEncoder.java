@@ -20,14 +20,24 @@ class FontEncoder {
 
   boolean rle;
   final RooDisplayFont font;
+  private final String nameSuffix;
 
-  public FontEncoder(RooDisplayFont font) { this.font = font; }
+  public FontEncoder(RooDisplayFont font) { this(font, ""); }
+
+  public FontEncoder(RooDisplayFont font, String nameSuffix) {
+    this.font = font;
+    this.nameSuffix = nameSuffix == null ? "" : nameSuffix;
+  }
 
   public RooDisplayFont getFont() { return font; }
 
+  private String getDisplayFontName() {
+    return font.getFont().getPSName() + nameSuffix;
+  }
+
   public void writeDeclaration(Writer os, String var) throws IOException {
     HexWriter hexWriter = new HexWriter(os);
-    hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
+    hexWriter.printComment("Font " + getDisplayFontName() + " (" +
                            font.getFont().getName() + ")\n");
     os.write("const Font& " + var + "();");
   }
@@ -380,7 +390,7 @@ class FontEncoder {
     int glyphMetricsOffset = headerBytes + cmapBytes;
     int glyphDataOffset = glyphMetricsOffset + glyphMetricsBytes + kerningBytes;
 
-    hexWriter.printComment("Font " + font.getFont().getPSName() + " (" +
+    hexWriter.printComment("Font " + getDisplayFontName() + " (" +
                            font.getFont().getName() + ")\n");
     hexWriter.printComment("Generated on " + new Date() + ".\n");
     hexWriter.printComment("@glyphStats@\n");

@@ -47,6 +47,11 @@ class FontImporter {
     @Option(names = "-sizes", description = "Font size(s) to generate.")
     private String fontSizes;
 
+    @Option(names = "-suffix",
+            description =
+                "Suffix appended to font names for files and symbols.")
+    private String nameSuffix;
+
     @Option(names = "-list",
             description = "Lists fonts available in the system.")
     private boolean listFonts;
@@ -86,7 +91,8 @@ class FontImporter {
       boolean smooth = true;
       char[] charset = parseCharset(charsetRanges);
       File outDir = outputDir != null ? outputDir : new File(".");
-      System.out.println("Generating " + inputFontName);
+      String suffix = nameSuffix == null ? "" : nameSuffix;
+      System.out.println("Generating " + inputFontName + suffix);
       System.out.println("Output directory: " + outDir.getAbsolutePath());
       Font instance = map.get(inputFontName);
       if (instance == null) {
@@ -124,8 +130,8 @@ class FontImporter {
         System.out.print("Generating size " + fontSize + " ... ");
         f.generateKerningPairs(candidates);
         FontWriter writer = new FontWriter(outDir, true);
-        FontEncoder encoder = new FontEncoder(f);
-        int size = writer.writeFont(encoder, inputFontName, fontSize);
+        FontEncoder encoder = new FontEncoder(f, suffix);
+        int size = writer.writeFont(encoder, inputFontName + suffix, fontSize);
         System.out.print("Done (" + size + " bytes.)\n");
       }
       return null;
