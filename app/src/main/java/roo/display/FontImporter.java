@@ -17,6 +17,8 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ExecutionException;
 import picocli.CommandLine.Option;
+import roo.display.imageimporter.CppPayloadFormatConverter;
+import roo.display.imageimporter.ImportOptions.CppPayloadFormat;
 
 // The main command-line interface.
 class FontImporter {
@@ -64,6 +66,10 @@ class FontImporter {
                           + "include (e.g., U+0020..U+007F",
             split = ",")
     private List<String> charsetRanges;
+
+    @Option(names = "--cpp-payload-format", converter = CppPayloadFormatConverter.class,
+        description = "C++ payload format: byte-list, string-literal-wrapper")
+    private CppPayloadFormat cppPayloadFormat = CppPayloadFormat.BYTE_LIST;
 
     @Override
     public Void call() throws Exception {
@@ -129,7 +135,7 @@ class FontImporter {
         RooDisplayFont f = new RooDisplayFont(font, smooth, charset);
         System.out.print("Generating size " + fontSize + " ... ");
         f.generateKerningPairs(candidates);
-        FontWriter writer = new FontWriter(outDir, true);
+        FontWriter writer = new FontWriter(outDir, true, cppPayloadFormat);
         FontEncoder encoder = new FontEncoder(f, suffix);
         int size = writer.writeFont(encoder, inputFontName + suffix, fontSize);
         System.out.print("Done (" + size + " bytes.)\n");

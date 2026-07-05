@@ -1,6 +1,7 @@
 package roo.display;
 
 import hexwriter.HexWriter;
+import hexwriter.PayloadWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -12,6 +13,8 @@ import java.util.List;
 import roo.display.RooDisplayFont.Glyph;
 import roo.display.encode.*;
 import roo.display.encode.alpha4.*;
+import roo.display.imageimporter.CppPayloadSupport;
+import roo.display.imageimporter.ImportOptions.CppPayloadFormat;
 
 class FontEncoder {
   private static final int KERNING_FORMAT_NONE = 0;
@@ -246,7 +249,7 @@ class FontEncoder {
     return entries;
   }
 
-  private static void printHex32(HexWriter writer, long value)
+  private static void printHex32(PayloadWriter writer, long value)
       throws IOException {
     int hi = (int)((value >> 16) & 0xFFFF);
     int lo = (int)(value & 0xFFFF);
@@ -254,13 +257,13 @@ class FontEncoder {
     writer.printHex16(lo);
   }
 
-  public int writeDefinition(Writer os, String var, boolean rle)
+  public int writeDefinition(Writer os, String var, boolean rle, CppPayloadFormat cppPayloadFormat)
       throws IOException {
     final RooDisplayFont.MaxFontSize maxFontSize;
 
     // Use a StringWriter buffer to generate content with placeholders first.
     StringWriter buffer = new StringWriter();
-    HexWriter hexWriter = new HexWriter(buffer);
+    PayloadWriter hexWriter = CppPayloadSupport.createPayloadWriter(buffer, cppPayloadFormat);
     GlyphEncoder glyphEncoder = new GlyphEncoder(font.getAlphaBits(), rle);
     List<Glyph> glyphs = font.getGlyphs();
 
@@ -394,7 +397,7 @@ class FontEncoder {
                            font.getFont().getName() + ")\n");
     hexWriter.printComment("Generated on " + new Date() + ".\n");
     hexWriter.printComment("@glyphStats@\n");
-    hexWriter.beginStatic(var);
+    hexWriter.beginStatic(var, "@totalBytes@");
     hexWriter.newLine();
     hexWriter.printComment("Header (@headerStats@).");
     hexWriter.newLine();
@@ -745,6 +748,7 @@ class FontEncoder {
     content = content.replace("@glyphDataStats@",
                               observedGlyphDataBytes + " bytes");
     content = content.replace("@totalStats@", totalBytes + " bytes");
+    content = content.replace("@totalBytes@", String.valueOf(totalBytes));
 
     // Write the final content with substituted values to the actual output.
     os.write(content);
@@ -910,9 +914,9 @@ class FontEncoder {
 
   private static class FontMetricWriter {
     private final int fontMetricBytes;
-    private final HexWriter writer;
+    private final PayloadWriter writer;
 
-    public FontMetricWriter(int fontMetricBytes, HexWriter writer) {
+    public FontMetricWriter(int fontMetricBytes, PayloadWriter writer) {
       this.fontMetricBytes = fontMetricBytes;
       this.writer = writer;
     }
@@ -938,9 +942,9 @@ class FontEncoder {
 
   private static class OffsetWriter {
     private final int offsetBytes;
-    private final HexWriter writer;
+    private final PayloadWriter writer;
 
-    public OffsetWriter(int offsetBytes, HexWriter writer) {
+    public OffsetWriter(int offsetBytes, PayloadWriter writer) {
       this.offsetBytes = offsetBytes;
       this.writer = writer;
     }

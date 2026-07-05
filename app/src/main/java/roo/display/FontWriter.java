@@ -6,15 +6,19 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import roo.display.imageimporter.CppPayloadSupport;
+import roo.display.imageimporter.ImportOptions.CppPayloadFormat;
 
 // Writes the encoded font to the output files.
 class FontWriter {
   private final File libDir;
   private final boolean rle;
+  private final CppPayloadFormat cppPayloadFormat;
 
-  FontWriter(File libDir, boolean rle) {
+  FontWriter(File libDir, boolean rle, CppPayloadFormat cppPayloadFormat) {
     this.libDir = libDir;
     this.rle = rle;
+    this.cppPayloadFormat = cppPayloadFormat;
   }
 
   public int writeFont(FontEncoder encoder, String fontName, int fontSize) throws IOException {
@@ -46,14 +50,21 @@ class FontWriter {
         new OutputStreamWriter(new FileOutputStream(outputCppFile)));
     cppWriter.write("#include \"" + String.valueOf(fontSize) + ".h\"\n");
     cppWriter.write("#include <inttypes.h>\n");
+    if (usesStringLiteralPayloadWrapper()) {
+      CppPayloadSupport.writeStringLiteralWrapperIncludes(cppWriter);
+    }
     cppWriter.write("#include \"roo_display/hal/progmem.h\"\n");
     cppWriter.write("#include \"roo_display/font/smooth_font_v2.h\"\n\n");
     cppWriter.write("namespace roo_display {\n\n");
-    int size = encoder.writeDefinition(cppWriter, varName + "_data", rle);
+    if (usesStringLiteralPayloadWrapper()) {
+      CppPayloadSupport.writeGeneratedPayloadHelper(cppWriter);
+    }
+    int size = encoder.writeDefinition(cppWriter, varName + "_data", rle, cppPayloadFormat);
 
     cppWriter.write("\n");
     cppWriter.write("const Font& " + varName + "() {\n");
-    cppWriter.write("  static SmoothFontV2 font(" + varName + "_data" + ");\n");
+    cppWriter.write("  static SmoothFontV2 font(" + getPayloadPointerExpression(varName + "_data")
+        + ");\n");
     cppWriter.write("  return font;\n");
     cppWriter.write("}\n");
 
@@ -62,5 +73,13 @@ class FontWriter {
     cppWriter.flush();
     cppWriter.close();
     return size;
+  }
+
+  private boolean usesStringLiteralPayloadWrapper() {
+    return CppPayloadSupport.usesStringLiteralPayloadWrapper(cppPayloadFormat);
+  }
+
+  private String getPayloadPointerExpression(String dataVar) {
+    return CppPayloadSupport.getPayloadPointerExpression(cppPayloadFormat, dataVar);
   }
 }
