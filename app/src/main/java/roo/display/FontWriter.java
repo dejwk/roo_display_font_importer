@@ -6,6 +6,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.math.BigDecimal;
 import roo.display.imageimporter.CppPayloadSupport;
 import roo.display.imageimporter.ImportOptions.CppPayloadFormat;
 
@@ -21,7 +22,7 @@ class FontWriter {
     this.cppPayloadFormat = cppPayloadFormat;
   }
 
-  public int writeFont(FontEncoder encoder, String fontName, int fontSize) throws IOException {
+  public int writeFont(FontEncoder encoder, String fontName, float fontSize) throws IOException {
     if (fontName == null) {
       RooDisplayFont font = encoder.getFont();
       fontName = font.getFont().getPSName() + "-" + (font.getAscent() + font.getDescent());
@@ -32,10 +33,11 @@ class FontWriter {
     String fullFontName = "font_" + fontName.replaceAll("-", "_");
     File familyDir = new File(libDir, fontName.replaceAll("-", "_"));
     familyDir.mkdirs();
-    File outputHeaderFile = new File(familyDir, String.valueOf(fontSize) + ".h");
-    File outputCppFile = new File(familyDir, String.valueOf(fontSize) + ".cpp");
+    String sizeName = getSizeName(fontSize);
+    File outputHeaderFile = new File(familyDir, sizeName + ".h");
+    File outputCppFile = new File(familyDir, sizeName + ".cpp");
     String varName = fullFontName.replaceAll("-", "_").replaceAll(" ", "_")
-        + "_" + String.valueOf(fontSize);
+        + "_" + sizeName;
 
     Writer headerWriter = new BufferedWriter(
         new OutputStreamWriter(new FileOutputStream(outputHeaderFile)));
@@ -48,7 +50,7 @@ class FontWriter {
 
     Writer cppWriter = new BufferedWriter(
         new OutputStreamWriter(new FileOutputStream(outputCppFile)));
-    cppWriter.write("#include \"" + String.valueOf(fontSize) + ".h\"\n");
+    cppWriter.write("#include \"" + sizeName + ".h\"\n");
     cppWriter.write("#include <inttypes.h>\n");
     if (usesStringLiteralPayloadWrapper()) {
       CppPayloadSupport.writeStringLiteralWrapperIncludes(cppWriter);
@@ -81,5 +83,10 @@ class FontWriter {
 
   private String getPayloadPointerExpression(String dataVar) {
     return CppPayloadSupport.getPayloadPointerExpression(cppPayloadFormat, dataVar);
+  }
+
+  private static String getSizeName(float fontSize) {
+    return new BigDecimal(Float.toString(fontSize)).stripTrailingZeros().toPlainString()
+        .replace('.', '_');
   }
 }

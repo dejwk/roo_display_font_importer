@@ -11,6 +11,10 @@ Generate a few sizes of a given font, extracting a default character set:
 ./import_fonts -font NotoSans-Regular -sizes 9,10,12,15
 ```
 
+Sizes may be fractional, for example `-sizes 12.5`. Generated filenames and
+C++ symbols replace the decimal point with an underscore (`12_5.h` and
+`font_NotoSans_Regular_12_5`).
+
 Extract just digits, '-', and '.', and write output to a specified dir:
 
 ```

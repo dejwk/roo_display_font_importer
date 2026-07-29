@@ -224,9 +224,9 @@ class RooDisplayFont {
 
     GlyphImporter(Font font) {
       this.font = font;
-      int fontSize = font.getSize();
-      int imgWidth = fontSize * 5;
-      int imgHeight = fontSize * 5;
+      float fontSize = font.getSize2D();
+      int imgWidth = (int) Math.ceil(fontSize * 5);
+      int imgHeight = (int) Math.ceil(fontSize * 5);
       this.img =
         new BufferedImage(imgWidth, imgHeight, BufferedImage.TYPE_INT_RGB);
       this.graphics = img.createGraphics();
@@ -249,8 +249,8 @@ class RooDisplayFont {
     }
 
     Glyph importGlyph(char c, AlphaBits bits) {
-      int xOffset = font.getSize() * 2;
-      int yOffset = font.getSize() * 2;
+      int xOffset = (int) Math.ceil(font.getSize2D() * 2);
+      int yOffset = (int) Math.ceil(font.getSize2D() * 2);
       graphics.clearRect(0, 0, img.getWidth(), img.getHeight());
       graphics.drawString(String.valueOf(c), xOffset, yOffset);
 

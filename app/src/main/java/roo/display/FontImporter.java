@@ -5,7 +5,6 @@ import java.awt.GraphicsEnvironment;
 import java.awt.font.TextAttribute;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,19 +105,19 @@ class FontImporter {
         return null;
       }
 
-      int[] sizes = Arrays.asList(fontSizes.split(","))
-                        .stream()
-                        .map(String::trim)
-                        .mapToInt(Integer::parseInt)
-                        .toArray();
+      float[] sizes = parseFontSizes(fontSizes);
 
       List<RooDisplayFont.CodePointPair> candidates = null;
       if (sizes.length > 1) {
         // Narrow down candidate kerning pairs by looking at all possible pairs
         // for the largest possible size.
         System.out.print("Identify kerning pair candidates... ");
+        float largestSize = sizes[0];
+        for (float size : sizes) {
+          largestSize = Math.max(largestSize, size);
+        }
         Font font = instance.deriveFont(attributes)
-                        .deriveFont(Font.PLAIN, sizes[sizes.length - 1]);
+                        .deriveFont(Font.PLAIN, largestSize);
         RooDisplayFont f = new RooDisplayFont(font, smooth, charset);
         System.out.println(f.getGlyphCount());
         f.generateKerningPairs(null);
@@ -129,7 +128,7 @@ class FontImporter {
         System.out.println("found " + candidates.size() + " candidate pairs.");
       }
 
-      for (int fontSize : sizes) {
+      for (float fontSize : sizes) {
         Font font =
             instance.deriveFont(attributes).deriveFont(Font.PLAIN, fontSize);
         RooDisplayFont f = new RooDisplayFont(font, smooth, charset);
@@ -142,6 +141,20 @@ class FontImporter {
       }
       return null;
     }
+  }
+
+  private static float[] parseFontSizes(String fontSizes) {
+    String[] sizeStrings = fontSizes.split(",");
+    float[] sizes = new float[sizeStrings.length];
+    for (int i = 0; i < sizeStrings.length; ++i) {
+      float size = Float.parseFloat(sizeStrings[i].trim());
+      if (!Float.isFinite(size) || size <= 0) {
+        throw new IllegalArgumentException(
+            "Font sizes must be finite, positive numbers.");
+      }
+      sizes[i] = size;
+    }
+    return sizes;
   }
 
   private static Pattern rangePattern =
