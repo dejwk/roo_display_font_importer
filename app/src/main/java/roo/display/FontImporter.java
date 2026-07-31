@@ -58,7 +58,7 @@ class FontImporter {
     private boolean listFonts;
 
     @Option(names = "-charset",
-            defaultValue = "21-17F,3A9,3BC,3C0,2013-2014,20AC,20BF,2018-2022,"
+            defaultValue = "21-17F,3A9,3BC,3C0,2013-2014,2082-2085,20AC,20BF,2018-2022,"
                            + "2026,2030,2039-203A,2044,2122,2152,2202,2206,"
                            + "221A,221E,2248,2260,2264-2265,FB01-FB02",
             description = "Comma-separated list of character ranges to "
