@@ -329,11 +329,10 @@ class FontEncoder {
 
     boolean fixedPoint =
         (minAdvance == maxAdvance && font.getKerningPairs().isEmpty());
-    // int linesep = (int) Math.round(0.35 * (font.getAscent() +
-    // font.getDescent())).
-    int linesep = Math.max(maxBoundingBox.getHeight() -
-                               (font.getAscent() - font.getDescent()),
-                           (int)(0.2 * (font.getAscent() + font.getDescent())));
+    int span = font.getAscent() - font.getDescent();
+    // Fit all glyphs and leave at least 20% of the ascent-to-descent span.
+    // Descent is negative; round the minimum gap up to a whole pixel.
+    int linesep = Math.max(maxBoundingBox.getHeight() - span, (span + 4) / 5);
 
     maxFontMetricBytes =
         Math.max(maxFontMetricBytes, signedBytes(maxBoundingBox.xMin * 2));
